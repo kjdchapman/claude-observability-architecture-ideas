@@ -1,0 +1,64 @@
+{
+  "turing": "1",
+  "id": "grill-me",
+  "name": "Grill Me",
+  "description": "Systematically interrogate the user's mental model of a proposed codebase change using a design tree, before planning begins. Surfaces assumptions, constraints and expectations the initial description leaves out, and persists them as a machine-readable tree plus a human-readable handoff summary.",
+  "version": "0.1.0",
+
+  "layer": "4",
+  "category": "skill",
+  "carrier": "plugin",
+
+  "relationships": {
+    "requires": [],
+    "influenced_by": ["skill-open-knowledge-format"],
+    "implements": [],
+    "integrates_with": [],
+    "affects": []
+  },
+
+  "governance": {
+    "competence": {
+      "tested_contexts": [
+        "Interactive Claude Code CLI sessions run immediately before a planning session, on the author's own small-to-medium single-repo codebases",
+        "Projects carrying an Open Knowledge Format vault, where both the vault-reading path (prior decisions sharpening questions) and the vault-emission path (settled decisions written back as notes) were exercised"
+      ],
+      "boundaries": [
+        "Not tested on large monorepos, where reading the code before each question becomes expensive enough to change the questioning cadence",
+        "Not tested in headless or non-interactive runs — the design tree only advances on turn-by-turn answers from a human",
+        "Not tested against knowledge vaults in any format other than Open Knowledge Format, and the vault-emission path is skipped entirely when the open-knowledge-format skill is absent",
+        "Not tested on client delivery codebases, or with any user other than the author, so the questioning tone has not been calibrated against unfamiliar teams"
+      ]
+    },
+    "human_review": {
+      "output_type": "direct",
+      "approval": "explicit",
+      "artefacts": [
+        "the design tree JSON written to .grill-me/<slug>-<timestamp>.json",
+        "the markdown handoff summary written to .grill-me/<slug>-<timestamp>-summary.md",
+        "any knowledge vault notes emitted for settled decisions, which the skill must ask before writing",
+        "the proposed .gitignore entry for .grill-me/, which the skill must ask before adding"
+      ]
+    }
+  },
+
+  "composition": {
+    "tone": "directive",
+    "rewrite_sections": [],
+    "preserve_sections": ["## The Design Tree", "## Questioning approach"],
+    "influence_prompts": {}
+  },
+
+  "artifacts": {
+    "skill": "skills/grill-me/SKILL.md",
+    "hooks": [],
+    "references": [],
+    "scripts": []
+  },
+
+  "allowed_tools": ["Read", "Write", "Edit", "Grep", "Glob", "Bash"],
+
+  "source": {
+    "repository": "madetech/skill-grill-me"
+  }
+}

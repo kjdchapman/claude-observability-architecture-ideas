@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "okf": {
+      "command": "python3",
+      "args": [
+        "-c",
+        "import os,sys\nd=os.getcwd()\nwhile 1:\n r=os.path.join(d,'.claude','alan','components',sys.argv[1])\n if os.path.isdir(r):break\n p=os.path.dirname(d)\n if p==d:sys.exit('alan: component %s not found above %s'%(sys.argv[1],os.getcwd()))\n d=p\na=[x.replace('@ALAN_COMPONENT_ROOT@',r) for x in sys.argv[2:]]\nos.execvp(a[0],a)\n",
+        "open-knowledge-format",
+        "python3",
+        "@ALAN_COMPONENT_ROOT@/skills/open-knowledge-format/scripts/okf_mcp.py"
+      ]
+    }
+  }
+}

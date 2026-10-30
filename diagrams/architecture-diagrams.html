@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Observability architecture: diagrams (ADR-001, proposed)</title>
+<style>
+  :root { --fg:#1f2328; --muted:#59636e; --bg:#ffffff; --panel:#f6f8fa; --border:#d1d9e0; --accent:#0969da; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6edf3; --muted:#9198a1; --bg:#0d1117; --panel:#151b23; --border:#3d444d; --accent:#4493f8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); }
+  header { padding:28px 32px 12px; border-bottom:1px solid var(--border); }
+  header h1 { margin:0 0 6px; font-size:22px; }
+  header p { margin:0; color:var(--muted); max-width:900px; }
+  .badge { display:inline-block; font-size:12px; padding:1px 8px; border:1px solid var(--border); border-radius:999px; color:var(--muted); margin-left:6px; vertical-align:middle; }
+  nav { padding:12px 32px; border-bottom:1px solid var(--border); display:flex; flex-wrap:wrap; gap:6px 16px; position:sticky; top:0; background:var(--bg); z-index:1; }
+  nav a { color:var(--accent); text-decoration:none; font-size:14px; }
+  nav a:hover { text-decoration:underline; }
+  main { padding:8px 32px 48px; max-width:1200px; }
+  section { margin:28px 0; padding:20px 22px; background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+  section h2 { margin:0 0 4px; font-size:18px; }
+  section .tag { font-size:12px; color:var(--muted); margin-bottom:8px; }
+  section p { margin:6px 0 14px; color:var(--muted); max-width:900px; }
+  .mermaid { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:16px; overflow-x:auto; text-align:center; }
+  footer { padding:0 32px 32px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Observability architecture: diagrams <span class="badge">ADR-001 · proposed · draft</span></h1>
+  <p>Diagrams for every architecture in <code>vault/decisions/adr-001-observability-architecture.md</code>.
+  Produced in a prototyping session: nothing here is decided, and the details of AWS services haven't been checked against the account.</p>
+</header>
+
+<nav>
+  <a href="#current">1. Current estate</a>
+  <a href="#incident">2. Incident flow</a>
+  <a href="#a">3. Option A</a>
+  <a href="#b">4. Option B</a>
+  <a href="#c">5. Option C</a>
+  <a href="#d">6. Option D</a>
+  <a href="#provenance">7. Cache provenance</a>
+  <a href="#alerts">8. Alert routing</a>
+</nav>
+
+<main>
+
+<section id="current">
+  <h2>1. Current estate</h2>
+  <div class="tag">Today, as described in the grill session</div>
+  <p>One Docker image, run as one app service and several website services split by request path. All of them share a Valkey cache and call the third party. Observability is CloudWatch Logs, plus Slack alerts on CPU and load balancer latency, plus Firebase for the app.</p>
+  <pre class="mermaid">
+flowchart LR
+  U["Users<br/>app and website"] --> WAF["AWS WAF"] --> CF["CloudFront<br/>routes by path"] --> ALB["Load balancer"]
+  subgraph ECS["ECS: one Docker image"]
+    APP["App service"]
+    WEB1["Website service<br/>path group 1"]
+    WEBN["Website services<br/>path groups 2..n"]
+  end
+  ALB --> APP & WEB1 & WEBN
+  APP & WEB1 & WEBN <--> CACHE[("ElastiCache<br/>Valkey, shared")]
+  APP & WEB1 & WEBN --> TP["Third-party<br/>data provider"]
+  APP & WEB1 & WEBN -. logs .-> CWL["CloudWatch Logs"]
+  ALB -. metrics .-> CWM["CloudWatch metrics<br/>CPU, LB latency"]
+  APP -. metrics .-> CWM
+  CWM --> SL["Slack alerts"]
+  MOB["App clients"] -.-> FB["Firebase"]
+  </pre>
+</section>
+
+<section id="incident">
+  <h2>2. How the incident spread</h2>
+  <div class="tag">Context: why the options matter</div>
+  <p>One refresh call missing the API key put an error into the shared cache. Every task then served it. The cause was logged once, on one task, and no alert fired.</p>
+  <pre class="mermaid">
+sequenceDiagram
+  participant T1 as App task doing refresh
+  participant TP as Third party
+  participant C as Valkey cache
+  participant TN as All other tasks
+  participant U as Users
+  participant L as CloudWatch Logs
+  T1->>TP: Refresh call without API key
+  TP-->>T1: 401 Unauthorized
+  T1->>L: One error line, on this task only
+  T1->>C: Writes error state
+  U->>TN: Requests
+  TN->>C: Read
+  C-->>TN: Cached error
+  TN-->>U: Error or bad data
+  Note over C,L: No alert fires. CPU and latency look normal
+  </pre>
+</section>
+
+<section id="a">
+  <h2>3. Option A: CloudWatch quick wins</h2>
+  <div class="tag">Mitigate · no procurement · low cost</div>
+  <p>Structured logs with consistent fields, metric filters and alarms, synthetic canaries that check page content, and one dashboard covering both products.</p>
+  <pre class="mermaid">
+flowchart LR
+  subgraph ECS["ECS tasks: app and website"]
+    T["Structured JSON logs<br/>service, product, trace id,<br/>dependency, status, cache_write"]
+  end
+  T --> CWL["CloudWatch Logs"]
+  CWL --> MF["Metric filters"] --> CWM["CloudWatch metrics"]
+  CWM --> AL["CloudWatch alarms"] --> SL["Slack"]
+  CWL --> LI["Logs Insights<br/>saved queries across both products"]
+  SYN["CloudWatch Synthetics<br/>canaries"] -->|checks content| PAGES["Key app and website<br/>pages and APIs"]
+  SYN --> CWM
+  CWM --> DB["Shared dashboard<br/>both products"]
+  LI --> DB
+  </pre>
+</section>
+
+<section id="b">
+  <h2>4. Option B: OpenTelemetry into AWS-native backends</h2>
+  <div class="tag">Solve · no procurement · medium cost</div>
+  <p>OpenTelemetry instrumentation with an ADOT collector sidecar, exporting to X-Ray, CloudWatch and Application Signals (service map, dependencies, SLOs). Includes cache provenance, an app change.</p>
+  <pre class="mermaid">
+flowchart LR
+  subgraph TASK["Each ECS task"]
+    APP["App container<br/>OTel SDK or auto-instrumentation"] -->|OTLP| COL["CloudWatch agent or<br/>ADOT collector sidecar"]
+  end
+  COL -->|traces| XR["AWS X-Ray"]
+  COL -->|metrics| CWM["CloudWatch metrics"]
+  COL -->|logs| CWL["CloudWatch Logs"]
+  XR & CWM & CWL --> AS["CloudWatch Application Signals<br/>service map, dependencies, SLOs"]
+  AS --> AL["SLO and anomaly alarms"] --> SL["Slack"]
+  SYN["Synthetics canaries<br/>from option A"] --> CWM
+  APP <-->|"value plus writer trace id,<br/>service and time"| CACHE[("Valkey cache<br/>with provenance")]
+  </pre>
+</section>
+
+<section id="c">
+  <h2>5. Option C: OpenTelemetry into an external product</h2>
+  <div class="tag">Solve · procurement required · medium to high cost</div>
+  <p>The same instrumentation as B, but exported to an outside product such as Honeycomb, Datadog or Grafana Cloud. The best investigation experience, but telemetry leaves AWS.</p>
+  <pre class="mermaid">
+flowchart LR
+  subgraph TASK["Each ECS task"]
+    APP["App container<br/>OTel SDK"] -->|OTLP| COL["OTel or ADOT collector<br/>sidecar"]
+  end
+  COL -->|"OTLP over HTTPS"| EXT["External product<br/>Honeycomb, Datadog or Grafana Cloud"]
+  COL -.->|optional| CWL["CloudWatch Logs"]
+  CWAWS["CloudWatch metrics<br/>load balancer, ElastiCache, ECS"] -->|integration| EXT
+  EXT --> Q["Queries, SLOs<br/>and alerting"] --> SL["Slack"]
+  PROC{{"Needs procurement<br/>and data leaves AWS"}} -.- EXT
+  </pre>
+</section>
+
+<section id="d">
+  <h2>6. Option D: OpenTelemetry into AWS-managed open source</h2>
+  <div class="tag">Solve · billed through AWS (procurement unconfirmed) · medium cost · highest ownership load</div>
+  <p>The same instrumentation, exported to Amazon Managed Service for Prometheus, X-Ray or OpenSearch, and CloudWatch Logs, all viewed in Amazon Managed Grafana.</p>
+  <pre class="mermaid">
+flowchart LR
+  subgraph TASK["Each ECS task"]
+    APP["App container<br/>OTel SDK"] --> COL["ADOT collector<br/>sidecar"]
+  end
+  COL -->|metrics| AMP["Amazon Managed<br/>Service for Prometheus"]
+  COL -->|traces| TR["X-Ray or OpenSearch"]
+  COL -->|logs| CWL["CloudWatch Logs"]
+  AMP & TR & CWL --> AMG["Amazon Managed Grafana<br/>dashboards and alerts"]
+  AMG --> SL["Slack"]
+  </pre>
+</section>
+
+<section id="provenance">
+  <h2>7. Cache provenance (applies to B, C and D)</h2>
+  <div class="tag">An app change: the piece that links a bad read to the write that caused it</div>
+  <p>Tracing follows a single request, but the bad entry was written by one call and read later by others. Storing the writer's trace ID with each value links the two, and refusing to cache failures stops the poisoning altogether.</p>
+  <pre class="mermaid">
+sequenceDiagram
+  participant W as Writer task
+  participant TP as Third party
+  participant C as Valkey cache
+  participant R as Reader task
+  participant O as Tracing backend
+  W->>TP: Refresh call, span with trace id W1
+  TP-->>W: Response
+  alt Response is not a success
+    W->>O: Span marked as error, caller and status recorded
+    W--xC: Not cached, previous value kept
+  else Response is a success
+    W->>C: Store value plus writer trace id W1, service and time
+  end
+  R->>C: Read
+  C-->>R: Value plus provenance
+  R->>O: Span links to W1
+  Note over R,O: From any bad read, go straight to the write that caused it
+  </pre>
+</section>
+
+<section id="alerts">
+  <h2>8. Alert routing: symptom-based and cause-based</h2>
+  <div class="tag">Applies to every option</div>
+  <p>Symptom alerts tell you users are affected and go to people. Cause signals point at the culprit: the strongest early warnings alert, and the rest feed a shared dashboard for investigation.</p>
+  <pre class="mermaid">
+flowchart TB
+  subgraph SYM["Symptom-based: users are affected"]
+    S1["User-facing error rate"]
+    S2["Synthetic check failing"]
+    S3["SLO burn rate"]
+  end
+  subgraph CAU["Cause-based: a component is failing"]
+    C1["Dependency 4xx and 5xx by caller"]
+    C2["Non-success responses being cached"]
+    C3["Cache refresh failures"]
+  end
+  S1 & S2 & S3 -->|page or Slack| ACT["Act now"]
+  C1 & C2 -->|strong early warnings| EW["Slack early warning"]
+  C1 & C2 & C3 --> DASH["Shared dashboard<br/>for investigation"]
+  </pre>
+</section>
+
+</main>
+
+<footer>
+  Source: OKF vault at <code>vault/</code> (session summary 2026-10-30 and ADR-001). Diagrams are rendered by Mermaid, loaded from a CDN, so viewing needs an internet connection.
+</footer>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "default", securityLevel: "strict", flowchart: { htmlLabels: true } });
+</script>
+</body>
+</html>

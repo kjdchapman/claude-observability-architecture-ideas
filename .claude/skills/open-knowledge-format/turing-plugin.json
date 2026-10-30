@@ -1,0 +1,70 @@
+{
+  "turing": "1",
+  "id": "skill-open-knowledge-format",
+  "name": "Open Knowledge Format",
+  "description": "Author, maintain, validate, visualise, and serve Open Knowledge Format (OKF v0.2) vaults — directories of plain Markdown + YAML frontmatter where links are graph edges.",
+  "version": "0.3.0",
+  "layer": "5",
+  "category": "skill",
+  "carrier": "plugin",
+  "relationships": {
+    "requires": [],
+    "influenced_by": [],
+    "implements": [],
+    "integrates_with": [],
+    "affects": []
+  },
+  "governance": {
+    "competence": {
+      "tested_contexts": [
+        "Claude Code CLI on macOS, invoking the bundled scripts through Bash",
+        "Python 3.12 and 3.14, standard library only, no third-party dependencies",
+        "184 stdlib unittest cases covering the graph model, validator exit codes, map token budget, MCP wire protocol, and viewer payload contract",
+        "Single-vault repositories where the vault is a directory of Markdown files committed alongside project code"
+      ],
+      "boundaries": [
+        "Not tested in Cowork or any headless environment without a local Python 3 interpreter",
+        "The MCP server is registered through the Claude Code plugin loader via .mcp.json, so it does not activate when this component is installed as a bare skill directory",
+        "Not tested on vaults maintained concurrently by Obsidian plugins or other tools writing frontmatter",
+        "Not tested on vaults larger than a few hundred notes, where the graph viewer layout and map token budget are unmeasured"
+      ]
+    },
+    "human_review": {
+      "output_type": "direct",
+      "approval": "explicit",
+      "artefacts": [
+        "Vault notes created or edited by the skill, reviewed as ordinary Write/Edit diffs",
+        "The validator report before acting on its warnings"
+      ]
+    }
+  },
+  "artifacts": {
+    "skill": "skills/open-knowledge-format/SKILL.md",
+    "hooks": [],
+    "references": [
+      "skills/open-knowledge-format/references/okf-spec.md",
+      "skills/open-knowledge-format/references/conventions.md",
+      "skills/open-knowledge-format/assets/templates/concept.md",
+      "skills/open-knowledge-format/assets/templates/index.md",
+      "skills/open-knowledge-format/assets/templates/log.md"
+    ],
+    "scripts": [
+      "skills/open-knowledge-format/scripts/validate_okf.py",
+      "skills/open-knowledge-format/scripts/okf_graph.py",
+      "skills/open-knowledge-format/scripts/okf_map.py",
+      "skills/open-knowledge-format/scripts/okf_mcp.py",
+      "skills/open-knowledge-format/scripts/graph_server.py"
+    ]
+  },
+  "allowed_tools": [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Bash"
+  ],
+  "source": {
+    "repository": "madetech/skill-open-knowledge-format"
+  }
+}
